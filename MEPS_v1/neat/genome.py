@@ -201,7 +201,7 @@ class DefaultGenome(object):
         self.crowding_distance = None
         self.trajectory = None
         self.preference = None
-        self.q_values = None
+        self.p_values = None
         self.a_trajectory = None
         self.sigma = sigma
         

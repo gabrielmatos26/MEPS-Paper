@@ -88,19 +88,19 @@ def eval_genomes(ind, config, **fitness_kwargs):
             trajectory = -1 * np.ones(episode_length + 1, dtype=int)
         trajectory[0] = st
         action_trajectory = -1 * np.ones(episode_length, dtype=int)
-        q_trajectory = []
+        p_trajectory = []
         r_trajectory = []
         
         for i in range(episode_length):
             if isinstance(st, list) and len(st) > 1:
-                q_values = net.activate(st)
+                p_values = net.activate(st)
             else:
-                q_values = net.activate([st])
-            q_values = np.array(q_values)
-            action = np.argmax(q_values) #greedy policy
+                p_values = net.activate([st])
+            p_values = np.array(p_values)
+            action = np.argmax(p_values) #greedy policy
 
             action_trajectory[i] = action
-            q_trajectory.append(q_values[action].tolist())
+            p_trajectory.append(p_values[action].tolist())
 
             st, reward, is_terminal = env.step(action)
 
@@ -109,32 +109,11 @@ def eval_genomes(ind, config, **fitness_kwargs):
             if is_terminal:
                 break
         
-        q_trajectory = np.array(q_trajectory)
+        p_trajectory = np.array(p_trajectory)
         r_trajectory = np.array(r_trajectory)
-        time_normalizer = np.zeros_like(r_trajectory)
-        time_normalizer[1:,0] = 1
-        r_trajectory += time_normalizer.cumsum(axis=0)
-        prod = np.ones_like(q_trajectory)
-        prod[1:] = 0.9
-        prod = np.cumprod(prod).reshape(-1,1)
-        R = np.zeros_like(r_trajectory)
-        Q = np.zeros_like(q_trajectory)
-        for i, v in enumerate(r_trajectory):
-            if i == 0:
-                Q[i] = np.sum(q_trajectory * prod.flatten(), axis=0)
-            else:
-                Q[i] = np.sum(q_trajectory[i:] * prod[:-i].flatten(), axis=0)
-
-        w_preference = np.linalg.pinv(r_trajectory).dot(Q)
-        w_preference = np.abs(w_preference)
-        C = w_preference.sum()
-        w_preference /= C
-        w_preference = 1 - w_preference
-        w_preference = np.nan_to_num(w_preference)
 
         genome.trajectory = trajectory
-        genome.preference = w_preference
-        genome.q_values = q_trajectory
+        genome.p_values = p_trajectory
         genome.a_trajectory = action_trajectory
 
         genome.fitness = reward
@@ -170,12 +149,6 @@ def run_by_gen(config_file, episode_length, env_name, total_gen=1000, parallel=0
         env = env_config.env()
     else:
         env = env_config.env(*extras)
-    try:
-        heatmap = np.zeros_like(env.map)
-        include_heatmap = True
-    except:
-        heatmap = None
-        include_heatmap = False
 
     best_hv = 0
     with trange(total_gen) as t:
@@ -188,29 +161,6 @@ def run_by_gen(config_file, episode_length, env_name, total_gen=1000, parallel=0
             for _, genome in p.population.items():
                 hv_current_points.append(genome.fitness)
             
-            if include_heatmap:
-                trajectories_parents_gen = []
-                factor = env.num_cols * env.num_rows
-                for _, genome in current_parents.items():
-                    trajectories_parents_gen.append(genome.trajectory.tolist())
-                    for st in genome.trajectory:
-                        if st == -1:
-                            break
-                        row = int(np.round(st * factor) - 1) // env.num_cols
-                        col = int(np.round(st * factor) - 1) % env.num_cols
-                        heatmap[row, col] += 1
-                trajectories_parents_history.append(trajectories_parents_gen)
-
-                trajectories_offspring_gen = []
-                for _, genome in current_offspring.items():
-                    trajectories_offspring_gen.append(genome.trajectory.tolist())
-                    for st in genome.trajectory:
-                        if st == -1:
-                            break
-                        row = int(np.round(st * factor) - 1) // env.num_cols
-                        col = int(np.round(st * factor) - 1) % env.num_cols
-                        heatmap[row, col] += 1
-                trajectories_offspring_history.append(trajectories_offspring_gen)
 
             hv_current_points = np.array(hv_current_points)
             hv_current = hv.do(hv_current_points)
@@ -240,7 +190,7 @@ def run_by_gen(config_file, episode_length, env_name, total_gen=1000, parallel=0
         print("Time {0}, Reward {1}, Genome id {2}".format(*solution))
         front.append(list(solution))
     
-    return hypervolume_history, np.array(front), p.memory, [np.array(trajectories_parents_history), np.array(trajectories_offspring_history)], heatmap
+    return hypervolume_history, np.array(front), p.memory, [np.array(trajectories_parents_history), np.array(trajectories_offspring_history)]
 
 
 def main(config_file, episode_length, env_name, n_exp=10, n_gen=100, local_dir="", parallel=0, env_kwargs={}, ht=0.0, adpt=0.0, use_hvc=True):
@@ -265,14 +215,12 @@ def main(config_file, episode_length, env_name, n_exp=10, n_gen=100, local_dir="
     for i in range(n_exp):
         print("Run {0}".format(i))
         assert n_exp > 0 and n_gen > 0
-        hypervolume_history, front, memory_best, trajectories_history, heatmap =\
+        hypervolume_history, front, memory_best, trajectories_history =\
                 run_by_gen(config_file, episode_length, env_name, total_gen=n_gen,\
                      parallel=parallel, env_kwargs=env_kwargs, ht=ht, adpt=adpt, use_hvc=use_hvc)
-        if heatmap is None:
-            result = {'hvs': hypervolume_history, 'solutions':np.array(front), 'solutions_dict':memory_best, 'trajectories':trajectories_history, 'heatmap': None}
-        else:
-            result = {'hvs': hypervolume_history, 'solutions':np.array(front), 'solutions_dict':memory_best,\
-                 'trajectories':trajectories_history, 'heatmap': heatmap.copy()}
+        
+        result = {'hvs': hypervolume_history, 'solutions':np.array(front), 'solutions_dict':memory_best, 'trajectories':trajectories_history, 'heatmap': None}
+        
         results[i+1] = result
         with open(filename, 'wb') as f:
             pickle.dump(results, f)
