@@ -202,7 +202,7 @@ def main(config_file, episode_length, env_name, n_exp=10, n_gen=100, local_dir="
         
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train MOEQ')
+    parser = argparse.ArgumentParser(description='Train MEPS')
     parser.add_argument('--env', dest='env', action='store', default="dst")
     parser.add_argument('--ngen', dest='n_gen', action='store', type=int, default=100)
     parser.add_argument('--nrun', dest='n_run', action='store', type=int, default=1)
